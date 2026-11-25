@@ -1,6 +1,5 @@
 """Chroma-key & bottom-align generated catgirl sprites into transparent PNGs and meme stickers."""
 
-from collections import deque
 import glob
 import os
 import sys
@@ -9,6 +8,7 @@ from PIL import Image
 ARTIFACT_DIR = r"C:\Users\NJ\.gemini\antigravity\brain\fee00b47-5095-45cc-8027-a691f5dbef8b"
 PROJECT_DIR = r"e:\反重力\hakimi-pet"
 SPRITE_OUT = os.path.join(PROJECT_DIR, "assets", "sprites")
+ACTION_OUT = os.path.join(SPRITE_OUT, "actions")
 MEME_OUT = os.path.join(PROJECT_DIR, "assets", "memes")
 
 MOOD_TO_MEME = {
@@ -20,6 +20,15 @@ MOOD_TO_MEME = {
     "eat": "吃白饭",
 }
 
+ACTION_KEY_TO_NAME = {
+    "turn": "东张西望",
+    "drag": "被鼠标拖拽悬空反馈",
+    "wave": "点击回应-元气挥手",
+    "run": "轻快奔跑",
+    "code": "写代码",
+    "curtsy": "猫娘屈膝礼仪",
+}
+
 
 def is_green_bg(r: int, g: int, b: int) -> bool:
     """Detect chroma-key green background pixels reliably (safe: character has no green)."""
@@ -27,19 +36,17 @@ def is_green_bg(r: int, g: int, b: int) -> bool:
 
 
 def chroma_key_image(img: Image.Image) -> Image.Image:
-    """Remove all chroma-key green regions (including enclosed hair/tail loops) and despill edges."""
+    """Remove all chroma-key green regions (including enclosed loops) and despill edges."""
     rgba = img.convert("RGBA")
     w, h = rgba.size
     pixels = rgba.load()
 
-    # Pass 1: Remove all chroma-green background pixels (outer + enclosed loops)
     for y in range(h):
         for x in range(w):
-            r, g, b, a = pixels[x, y]
+            r, g, b, _ = pixels[x, y]
             if is_green_bg(r, g, b):
                 pixels[x, y] = (0, 0, 0, 0)
 
-    # Pass 2: Despill green halo on semi-transparent anti-aliased edge pixels
     for _ in range(2):
         to_update: list[tuple[int, int, tuple[int, int, int, int]]] = []
         for y in range(h):
@@ -95,25 +102,36 @@ def make_meme_sticker(sprite: Image.Image, size: int = 256) -> Image.Image:
 
 def main() -> int:
     os.makedirs(SPRITE_OUT, exist_ok=True)
+    os.makedirs(ACTION_OUT, exist_ok=True)
     os.makedirs(MEME_OUT, exist_ok=True)
 
     for mood, meme_name in MOOD_TO_MEME.items():
         candidates = sorted(glob.glob(os.path.join(ARTIFACT_DIR, f"raw_{mood}_*.*")))
         if not candidates:
-            print(f"MISSING raw image for mood={mood}", file=sys.stderr)
-            return 1
-        src_path = candidates[-1]
-        with Image.open(src_path) as img:
-            keyed = chroma_key_image(img)
-            sprite = crop_and_resize_sprite(keyed)
+            continue
+        with Image.open(candidates[-1]) as img:
+            sprite = crop_and_resize_sprite(chroma_key_image(img))
             sprite_path = os.path.join(SPRITE_OUT, f"{mood}.png")
             sprite.save(sprite_path, "PNG")
-
             sticker = make_meme_sticker(sprite)
-            sticker_path = os.path.join(MEME_OUT, f"{meme_name}.png")
-            sticker.save(sticker_path, "PNG")
-            print(f"OK {mood} -> {sprite_path} ({sprite.size}) + {sticker_path}")
+            sticker.save(os.path.join(MEME_OUT, f"{meme_name}.png"), "PNG")
+            print(f"OK mood={mood} -> {sprite_path} ({sprite.size})")
 
+    missing = []
+    for key, action_name in ACTION_KEY_TO_NAME.items():
+        candidates = sorted(glob.glob(os.path.join(ARTIFACT_DIR, f"raw_act_{key}_*.*")))
+        if not candidates:
+            missing.append(f"{key} ({action_name})")
+            continue
+        with Image.open(candidates[-1]) as img:
+            sprite = crop_and_resize_sprite(chroma_key_image(img))
+            out_path = os.path.join(ACTION_OUT, f"{action_name}.png")
+            sprite.save(out_path, "PNG")
+            print(f"OK action={action_name} -> {out_path} ({sprite.size})")
+
+    if missing:
+        print(f"MISSING raw action images: {missing}", file=sys.stderr)
+        return 1
     return 0
 
 

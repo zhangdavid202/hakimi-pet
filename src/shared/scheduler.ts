@@ -134,114 +134,116 @@ export function computeMoveDestination(
   return { targetX, nextFacingRight: dir > 0 };
 }
 
-const PRESET_RULES: readonly {
-  readonly keywords: readonly string[];
-  readonly preset: ActionVisualPreset;
-}[] = [
-  {
-    keywords: ['吃', '白饭', '零食', '冰淇淋', '糖葫芦', '西瓜', '火锅', '月饼', 'Token'],
-    preset: {
-      sprite: 'eat',
-      motionClass: 'anim-eat',
-      particles: ['🍙', '✨', '⭐'],
-      propEmoji: '🍚',
-      durationMs: 4200,
-    },
+const ACTION_PRESET_MAP: Readonly<Record<string, ActionVisualPreset>> = {
+  待机呼吸休闲: {
+    sprite: 'idle',
+    spriteFile: 'idle.png',
+    motionClass: 'anim-idle',
+    particles: ['✨'],
+    durationMs: 4200,
   },
-  {
-    keywords: ['睡', '小憩', '瞌睡', '哈欠', '休眠'],
-    preset: {
-      sprite: 'sleep',
-      motionClass: 'anim-sleep',
-      particles: ['💤', '🌙'],
-      durationMs: 4800,
-    },
+  东张西望: {
+    sprite: 'idle',
+    spriteFile: 'actions/东张西望.png',
+    motionClass: 'anim-turn',
+    particles: ['👀', '✨'],
+    durationMs: 2400,
   },
-  {
-    keywords: ['生气', '傲娇', '气急败坏', '拍打', '吓一跳'],
-    preset: {
-      sprite: 'angry',
-      motionClass: 'anim-angry',
-      particles: ['💢', '⚡'],
-      durationMs: 3600,
-    },
+  被鼠标拖拽悬空反馈: {
+    sprite: 'shy',
+    spriteFile: 'actions/被鼠标拖拽悬空反馈.png',
+    motionClass: 'anim-drag',
+    particles: ['💦', '⭐'],
+    durationMs: 60000,
   },
-  {
-    keywords: ['害羞', '偷吃', '惊醒', '礼仪', '照镜子'],
-    preset: {
-      sprite: 'shy',
-      motionClass: 'anim-shy',
-      particles: ['💗', '✨'],
-      durationMs: 3600,
-    },
+  '点击回应-开心跃动': {
+    sprite: 'happy',
+    spriteFile: 'happy.png',
+    motionClass: 'anim-happy',
+    particles: ['⭐', '🌟', '💖'],
+    durationMs: 3800,
   },
-  {
-    keywords: ['舞', '开心', '元气', '跃动', '咯咯笑', '烟花', '红包', '雪人', '圣诞', '孔明灯', '吐泡泡', '水枪', '变身', '生花'],
-    preset: {
-      sprite: 'happy',
-      motionClass: 'anim-happy',
-      particles: ['⭐', '🌟', '💖'],
-      durationMs: 4200,
-    },
+  '点击回应-害羞惊讶': {
+    sprite: 'shy',
+    spriteFile: 'shy.png',
+    motionClass: 'anim-shy',
+    particles: ['💗', '✨'],
+    durationMs: 3600,
   },
-  {
-    keywords: ['360', '转圈', '旋转'],
-    preset: {
-      sprite: 'happy',
-      motionClass: 'anim-spin',
-      particles: ['✨', '💫'],
-      durationMs: 3200,
-    },
+  '点击回应-傲娇生气': {
+    sprite: 'angry',
+    spriteFile: 'angry.png',
+    motionClass: 'anim-angry',
+    particles: ['💢', '⚡'],
+    durationMs: 3600,
   },
-  {
-    keywords: ['走', '奔跑', '踏步', '荡秋千'],
-    preset: {
-      sprite: 'happy',
-      motionClass: 'anim-walk',
-      particles: ['🐾', '✨'],
-      durationMs: 3600,
-    },
+  '点击回应-元气挥手': {
+    sprite: 'happy',
+    spriteFile: 'actions/点击回应-元气挥手.png',
+    motionClass: 'anim-happy',
+    particles: ['👋', '⭐', '💖'],
+    durationMs: 3800,
   },
-  {
-    keywords: ['写代码', '魔方', '思考', '碎碎念', '小提琴', '魔术', '气球', '撸猫'],
-    preset: {
-      sprite: 'idle',
-      motionClass: 'anim-work',
-      particles: ['💻', '⭐', '🎵'],
-      durationMs: 4400,
-    },
+  轻快奔跑: {
+    sprite: 'happy',
+    spriteFile: 'actions/轻快奔跑.png',
+    motionClass: 'anim-walk',
+    particles: ['🐾', '✨'],
+    durationMs: 3600,
   },
-];
+  原地小憩沉眠: {
+    sprite: 'sleep',
+    spriteFile: 'sleep.png',
+    motionClass: 'anim-sleep',
+    particles: ['💤', '🌙'],
+    durationMs: 4800,
+  },
+  写代码: {
+    sprite: 'idle',
+    spriteFile: 'actions/写代码.png',
+    motionClass: 'anim-work',
+    particles: ['💻', '⭐'],
+    durationMs: 4600,
+  },
+  猫娘屈膝礼仪: {
+    sprite: 'shy',
+    spriteFile: 'actions/猫娘屈膝礼仪.png',
+    motionClass: 'anim-shy',
+    particles: ['🌸', '✨'],
+    durationMs: 3800,
+  },
+  吃白饭: {
+    sprite: 'eat',
+    spriteFile: 'eat.png',
+    motionClass: 'anim-eat',
+    particles: ['🍚', '✨'],
+    durationMs: 4200,
+  },
+};
 
 /**
- * Map any action name (including all dsh-pet action titles) to a lively procedural visual preset.
+ * Map any action name to its bespoke character sprite and procedural motion preset.
  */
 export function mapActionToVisualPreset(actionName: string): ActionVisualPreset {
-  if (actionName.includes('拖拽')) {
-    return {
-      sprite: 'shy',
-      motionClass: 'anim-drag',
-      particles: ['💦', '⭐'],
-      durationMs: 60000,
-    };
-  }
-  if (actionName.includes('东张西望')) {
-    return {
-      sprite: 'idle',
-      motionClass: 'anim-turn',
-      particles: ['👀', '✨'],
-      durationMs: 2200,
-    };
-  }
+  const exact = ACTION_PRESET_MAP[actionName];
+  if (exact) return exact;
 
-  for (const rule of PRESET_RULES) {
-    if (rule.keywords.some((kw) => actionName.includes(kw))) {
-      return rule.preset;
-    }
+  if (actionName.includes('睡') || actionName.includes('眠')) {
+    return { sprite: 'sleep', spriteFile: 'sleep.png', motionClass: 'anim-sleep', particles: ['💤'], durationMs: 4200 };
+  }
+  if (actionName.includes('吃')) {
+    return { sprite: 'eat', spriteFile: 'eat.png', motionClass: 'anim-eat', particles: ['✨'], durationMs: 4000 };
+  }
+  if (actionName.includes('气') || actionName.includes('怒')) {
+    return { sprite: 'angry', spriteFile: 'angry.png', motionClass: 'anim-angry', particles: ['💢'], durationMs: 3600 };
+  }
+  if (actionName.includes('羞')) {
+    return { sprite: 'shy', spriteFile: 'shy.png', motionClass: 'anim-shy', particles: ['💗'], durationMs: 3600 };
   }
 
   return {
     sprite: 'idle',
+    spriteFile: 'idle.png',
     motionClass: 'anim-idle',
     particles: ['✨'],
     durationMs: 4000,

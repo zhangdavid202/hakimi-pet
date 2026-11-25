@@ -227,8 +227,10 @@ function triggerWhisperNow(): void {
   }
 }
 
-function setSpriteMood(mood: SpriteMood): void {
-  spriteEl.src = `${rt.assetBaseUrl}/sprites/${mood}.png`;
+function setSpriteMood(mood: SpriteMood, spriteFile?: string): void {
+  const rel = spriteFile ?? `${mood}.png`;
+  const encoded = rel.split('/').map((part) => encodeURIComponent(part)).join('/');
+  spriteEl.src = `${rt.assetBaseUrl}/sprites/${encoded}`;
 }
 
 function playAction(selection: ActionSelection): void {
@@ -256,7 +258,7 @@ function playAction(selection: ActionSelection): void {
   } else {
     videoEl.pause();
     syncAvatarLayerVisibility(false);
-    setSpriteMood(resolved.preset.sprite);
+    setSpriteMood(resolved.preset.sprite, resolved.preset.spriteFile);
     if (!isUsing3dGlb()) {
       motionEl.className = resolved.preset.motionClass;
     }
@@ -295,6 +297,10 @@ function playAction(selection: ActionSelection): void {
       startMs: performance.now(),
       durationMs: walkDurationMs,
     };
+    const runPreset = resolveActionMedia(selection.name, rt.availableWebms);
+    if (runPreset.type === 'procedural') {
+      setSpriteMood(runPreset.preset.sprite, runPreset.preset.spriteFile);
+    }
     if (!isUsing3dGlb()) motionEl.className = 'anim-walk';
     scene3d?.setAction('happy', 'anim-walk');
     rt.actionTimerId = window.setTimeout(() => {

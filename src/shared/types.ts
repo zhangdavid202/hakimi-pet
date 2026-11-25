@@ -108,6 +108,7 @@ export type SpriteMood = 'idle' | 'happy' | 'shy' | 'angry' | 'sleep' | 'eat';
 /** Visual preset driving procedural animations when no .webm override exists. */
 export interface ActionVisualPreset {
   readonly sprite: SpriteMood;
+  readonly spriteFile?: string;
   readonly motionClass: string;
   readonly particles: readonly string[];
   readonly propEmoji?: string;

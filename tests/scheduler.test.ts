@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG } from '../src/shared/config';
 import {
@@ -32,8 +34,18 @@ describe('scheduler', () => {
   });
 
   it('excludes noMirror categories when facingRight is true', () => {
+    const cfgWithNoMirror = {
+      ...DEFAULT_CONFIG,
+      animations: {
+        ...DEFAULT_CONFIG.animations,
+        categories: [
+          ...DEFAULT_CONFIG.animations.categories,
+          { id: '文字', weight: 20, noMirror: true, actions: ['深度思考碎碎念'] },
+        ],
+      },
+    };
     for (let v = 0.01; v < 0.99; v += 0.02) {
-      const sel = rollNextAction(DEFAULT_CONFIG, true, false, () => v);
+      const sel = rollNextAction(cfgWithNoMirror, true, false, () => v);
       expect(sel.categoryId).not.toBe('文字');
     }
   });
@@ -59,14 +71,25 @@ describe('scheduler', () => {
     expect(nearLeft.targetX).toBeGreaterThan(20);
   });
 
-  it('maps action names to distinct procedural visual presets', () => {
-    expect(mapActionToVisualPreset('吃白饭').sprite).toBe('eat');
-    expect(mapActionToVisualPreset('哈欠连天').sprite).toBe('sleep');
-    expect(mapActionToVisualPreset('点击回应-傲娇生气').sprite).toBe('angry');
-    expect(mapActionToVisualPreset('点击回应-害羞惊讶').sprite).toBe('shy');
-    expect(mapActionToVisualPreset('可爱宅舞').sprite).toBe('happy');
-    expect(mapActionToVisualPreset('被鼠标拖拽悬空反馈').motionClass).toBe('anim-drag');
-    expect(mapActionToVisualPreset('东张西望').motionClass).toBe('anim-turn');
-    expect(mapActionToVisualPreset('未知动作').sprite).toBe('idle');
+  it('maps every action in DEFAULT_CONFIG to its own existing unique spriteFile', () => {
+    const allActions = [
+      ...DEFAULT_CONFIG.animations.idle,
+      ...DEFAULT_CONFIG.animations.turn,
+      ...DEFAULT_CONFIG.animations.drag,
+      ...DEFAULT_CONFIG.animations.clicks,
+      ...DEFAULT_CONFIG.animations.moves.actions.map((m) => m.name),
+      ...DEFAULT_CONFIG.animations.categories.flatMap((c) => c.actions),
+    ];
+
+    const seenFiles = new Set<string>();
+    const spritesRoot = path.resolve(__dirname, '..', 'assets', 'sprites');
+    for (const action of allActions) {
+      const preset = mapActionToVisualPreset(action);
+      expect(preset.spriteFile).toBeTruthy();
+      expect(seenFiles.has(preset.spriteFile!)).toBe(false);
+      expect(fs.existsSync(path.join(spritesRoot, preset.spriteFile!))).toBe(true);
+      seenFiles.add(preset.spriteFile!);
+    }
+    expect(seenFiles.size).toBe(12);
   });
 });
