@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' file: data:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+    <title>哈基米桌宠 - Hakimi Pet</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="stage">
+      <div id="bubble" class="hidden" aria-live="polite">
+        <img id="bubble-meme" class="hidden" alt="meme" />
+        <span id="bubble-text"></span>
+      </div>
+
+      <div id="pet-hitarea" title="哈基米">
+        <div id="pet-squash">
+          <div id="pet-flip">
+            <div id="pet-motion" class="anim-idle">
+              <img id="pet-sprite" alt="哈基米" draggable="false" />
+              <video id="pet-video" class="hidden" muted playsinline></video>
+            </div>
+          </div>
+        </div>
+        <div id="prop-badge" class="hidden"></div>
+      </div>
+
+      <canvas id="fx-canvas"></canvas>
+    </div>
+
+    <script src="../../dist/renderer/renderer.js"></script>
+  </body>
+</html>
