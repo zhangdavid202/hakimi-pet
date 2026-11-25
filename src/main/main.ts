@@ -125,29 +125,32 @@ function showPetContextMenu(state: {
   renderMode: RenderMode;
 }): void {
   if (!mainWindow) return;
+  const hasGlb = Boolean(findCustomModelUrl(getProjectRoot()));
   const menu = Menu.buildFromTemplate([
     { label: '💬 碎碎念一下', click: () => sendMenuCommand({ type: 'whisper-now' }) },
     { label: '🏠 回到初始位置', click: () => sendMenuCommand({ type: 'reset-position' }) },
     { type: 'separator' },
     {
-      label: '🧊 渲染模式',
+      label: '✨ 形象模式',
       submenu: [
         {
-          label: '3D 实时模型（眼神跟随 / Shift+拖拽旋转）',
+          label: 'Q版星辰猫娘（2.5D 眼神视差）',
           type: 'radio',
-          checked: state.renderMode === '3d',
-          click: () => sendMenuCommand({ type: 'set-render-mode', renderMode: '3d' }),
+          checked: state.renderMode === '2d' || !hasGlb,
+          click: () => sendMenuCommand({ type: 'set-render-mode', renderMode: '2d' }),
         },
         {
-          label: '2D Q版立绘',
+          label: hasGlb
+            ? '外部 3D 模型 (hakimi.glb)'
+            : '外部 3D 模型（放入 assets/models/hakimi.glb 启用）',
           type: 'radio',
-          checked: state.renderMode === '2d',
-          click: () => sendMenuCommand({ type: 'set-render-mode', renderMode: '2d' }),
+          enabled: hasGlb,
+          checked: hasGlb && state.renderMode === '3d',
+          click: () => sendMenuCommand({ type: 'set-render-mode', renderMode: '3d' }),
         },
         { type: 'separator' },
         {
-          label: '🔄 重置 3D 视角',
-          enabled: state.renderMode === '3d',
+          label: '🔄 重置视差/旋转角度',
           click: () => sendMenuCommand({ type: 'reset-orbit' }),
         },
       ],

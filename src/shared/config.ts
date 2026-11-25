@@ -38,7 +38,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     name: '哈基米',
     id: 'hakimi-main',
     size: 240,
-    renderMode: '3d',
+    renderMode: '2d',
     fixedEnabled: false,
     whisperEnabled: true,
     position: {

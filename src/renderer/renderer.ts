@@ -1,7 +1,9 @@
 import {
   computeCatchScore,
+  computeLookAtAngles,
   computeMoveDestination,
   computeSquashScale,
+  dampAngle,
   estimateThrowVelocity,
   pickClickReaction,
   pickWhisper,
@@ -44,6 +46,10 @@ interface PetRuntime {
   initialWindowPos: { x: number; y: number };
   petPos: { x: number; y: number };
   cursorScreen: Vec2;
+  tiltYawDeg: number;
+  tiltPitchDeg: number;
+  manualTiltYawDeg: number;
+  manualTiltPitchDeg: number;
   facingRight: boolean;
   renderMode: RenderMode;
   fixedEnabled: boolean;
@@ -123,10 +129,12 @@ function getPetMovementBounds(): Bounds {
   };
 }
 
+function isUsing3dGlb(): boolean {
+  return rt.renderMode === '3d' && scene3d !== null;
+}
+
 function updateFacing(facingRight: boolean): void {
   rt.facingRight = facingRight;
-  const shouldCssFlip = rt.renderMode === '2d' || !videoEl.classList.contains('hidden');
-  flipEl.classList.toggle('facing-right', shouldCssFlip && facingRight);
 }
 
 function syncAvatarLayerVisibility(showingWebm: boolean): void {
@@ -135,7 +143,7 @@ function syncAvatarLayerVisibility(showingWebm: boolean): void {
     spriteEl.classList.add('hidden');
     videoEl.classList.remove('hidden');
     motionEl.className = '';
-  } else if (rt.renderMode === '3d') {
+  } else if (isUsing3dGlb()) {
     videoEl.classList.add('hidden');
     spriteEl.classList.add('hidden');
     canvas3dEl.classList.remove('hidden');
@@ -145,7 +153,6 @@ function syncAvatarLayerVisibility(showingWebm: boolean): void {
     canvas3dEl.classList.add('hidden');
     spriteEl.classList.remove('hidden');
   }
-  updateFacing(rt.facingRight);
 }
 
 function triggerSquash(strength: number): void {
@@ -246,13 +253,13 @@ function playAction(selection: ActionSelection): void {
     videoEl.pause();
     syncAvatarLayerVisibility(false);
     setSpriteMood(resolved.preset.sprite);
-    if (rt.renderMode === '2d') {
+    if (!isUsing3dGlb()) {
       motionEl.className = resolved.preset.motionClass;
     }
     scene3d?.setAction(resolved.preset.sprite, resolved.preset.motionClass);
     rt.currentParticles = resolved.preset.particles;
 
-    if (resolved.preset.propEmoji && rt.renderMode === '2d') {
+    if (resolved.preset.propEmoji && !isUsing3dGlb()) {
       propEl.textContent = resolved.preset.propEmoji;
       propEl.classList.remove('hidden');
     } else {
@@ -284,7 +291,7 @@ function playAction(selection: ActionSelection): void {
       startMs: performance.now(),
       durationMs: walkDurationMs,
     };
-    if (rt.renderMode === '2d') motionEl.className = 'anim-walk';
+    if (!isUsing3dGlb()) motionEl.className = 'anim-walk';
     scene3d?.setAction('happy', 'anim-walk');
     rt.actionTimerId = window.setTimeout(() => {
       rt.walkAnim = null;
@@ -344,7 +351,7 @@ function setupPointerInteractions(): void {
     e.preventDefault();
     hitArea.setPointerCapture(e.pointerId);
 
-    if (e.shiftKey && rt.renderMode === '3d') {
+    if (e.shiftKey) {
       rt.mode = 'orbit';
       rt.orbitLast = { x: e.screenX, y: e.screenY };
       hitArea.classList.add('dragging');
@@ -386,7 +393,12 @@ function setupPointerInteractions(): void {
       const dx = e.screenX - rt.orbitLast.x;
       const dy = e.screenY - rt.orbitLast.y;
       rt.orbitLast = { x: e.screenX, y: e.screenY };
-      scene3d?.setOrbitDelta(dx, dy);
+      if (isUsing3dGlb()) {
+        scene3d?.setOrbitDelta(dx, dy);
+      } else {
+        rt.manualTiltYawDeg = Math.max(-45, Math.min(45, rt.manualTiltYawDeg + dx * 0.35));
+        rt.manualTiltPitchDeg = Math.max(-25, Math.min(25, rt.manualTiltPitchDeg - dy * 0.25));
+      }
       return;
     }
 
@@ -521,15 +533,26 @@ function tick(nowMs: number): void {
     squashEl.style.transform = '';
   }
 
-  if (rt.renderMode === '3d' && scene3d) {
-    const half = rt.config.pet.size * 0.5;
-    scene3d.update(dt, {
+  const half = rt.config.pet.size * 0.5;
+  const petCenter = { x: rt.petPos.x + half, y: rt.petPos.y + half };
+
+  if (isUsing3dGlb()) {
+    flipEl.style.transform = '';
+    scene3d?.update(dt, {
       cursorScreen: rt.cursorScreen,
-      petScreenCenter: { x: rt.petPos.x + half, y: rt.petPos.y + half },
+      petScreenCenter: petCenter,
       facingRight: rt.facingRight,
       mode: rt.mode === 'orbit' ? 'anim' : rt.mode,
       velocity: activeVel,
     });
+  } else {
+    const look = computeLookAtAngles(rt.cursorScreen, petCenter, false);
+    const targetYawDeg = look.eyeX * 14 + rt.manualTiltYawDeg;
+    const targetPitchDeg = look.eyeY * 9 + rt.manualTiltPitchDeg;
+    rt.tiltYawDeg = dampAngle(rt.tiltYawDeg, targetYawDeg, 9, dt);
+    rt.tiltPitchDeg = dampAngle(rt.tiltPitchDeg, targetPitchDeg, 9, dt);
+    const flipScale = rt.facingRight ? -1 : 1;
+    flipEl.style.transform = `perspective(850px) rotateY(${rt.tiltYawDeg.toFixed(2)}deg) rotateX(${rt.tiltPitchDeg.toFixed(2)}deg) scaleX(${flipScale})`;
   }
 
   renderParticles(dt);
@@ -553,6 +576,17 @@ async function init(): Promise<void> {
     y: initialWindowPos.y + layout.padTop,
   };
 
+  if (customModelUrl) {
+    try {
+      scene3d = new Neko3DScene(canvas3dEl, config.pet.size, customModelUrl);
+    } catch (err) {
+      console.warn('[hakimi-pet] WebGL unavailable for GLB:', err);
+    }
+  }
+
+  const requestedMode = config.pet.renderMode ?? '2d';
+  const effectiveMode: RenderMode = requestedMode === '3d' && scene3d ? '3d' : '2d';
+
   rt = {
     config,
     layout,
@@ -562,8 +596,12 @@ async function init(): Promise<void> {
     initialWindowPos,
     petPos: { ...initialPos },
     cursorScreen: { x: initialPos.x + config.pet.size * 0.5, y: initialPos.y + config.pet.size * 0.5 },
+    tiltYawDeg: 0,
+    tiltPitchDeg: 0,
+    manualTiltYawDeg: 0,
+    manualTiltPitchDeg: 0,
     facingRight: false,
-    renderMode: config.pet.renderMode ?? '3d',
+    renderMode: effectiveMode,
     fixedEnabled: config.pet.fixedEnabled,
     whisperEnabled: config.pet.whisperEnabled,
     mode: 'anim',
@@ -586,13 +624,6 @@ async function init(): Promise<void> {
     particles: [],
   };
 
-  try {
-    scene3d = new Neko3DScene(canvas3dEl, config.pet.size, customModelUrl);
-  } catch (err) {
-    console.warn('[hakimi-pet] WebGL unavailable, falling back to 2D sprites:', err);
-    rt.renderMode = '2d';
-  }
-
   window.petAPI.onCursorPos((pos) => {
     rt.cursorScreen = pos;
   });
@@ -606,8 +637,10 @@ async function init(): Promise<void> {
       resetToInitialPosition();
     } else if (cmd.type === 'reset-orbit') {
       scene3d?.resetOrbit();
+      rt.manualTiltYawDeg = 0;
+      rt.manualTiltPitchDeg = 0;
     } else if (cmd.type === 'set-render-mode') {
-      rt.renderMode = cmd.renderMode;
+      rt.renderMode = cmd.renderMode === '3d' && scene3d ? '3d' : '2d';
       playAction({ kind: 'idle', name: rt.lastActionName || rt.config.animations.idle[0] });
     } else if (cmd.type === 'toggle-fixed') {
       rt.fixedEnabled = cmd.fixedEnabled;
@@ -637,11 +670,7 @@ async function init(): Promise<void> {
   }, Math.max(20, config.whisperIntervalSec) * 1000);
 
   scheduleNextAction();
-  const welcomeMsg =
-    rt.renderMode === '3d'
-      ? 'Ciallo～★ 3D 哈基米上线！Shift+左键拖拽可360°旋转视角哦~'
-      : 'Ciallo～★ 哈基米上线啦！右键可以点播动作哦~';
-  window.setTimeout(() => showBubble(welcomeMsg, '可爱', 5500), 800);
+  window.setTimeout(() => showBubble('Ciallo～★ 哈基米上线啦！右键可以点播动作哦~', '可爱', 5500), 800);
   requestAnimationFrame(tick);
 }
 
