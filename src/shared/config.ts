@@ -1,4 +1,27 @@
-import { AppConfig, PhysicsConfig } from './types';
+import { AppConfig, PhysicsConfig, Vec2 } from './types';
+
+export const MIN_PET_SIZE = 100;
+export const MAX_PET_SIZE = 520;
+
+/** Clamp pet width/height in pixels to a safe desktop range. */
+export function clampPetSize(size: number): number {
+  if (!Number.isFinite(size)) return 240;
+  return Math.round(Math.min(MAX_PET_SIZE, Math.max(MIN_PET_SIZE, size)));
+}
+
+/**
+ * Compute new top-left pet position after resizing so the bottom-center (feet) stays anchored.
+ */
+export function computeAnchoredResizePos(
+  pos: Vec2,
+  oldSize: number,
+  newSize: number,
+): Vec2 {
+  return {
+    x: Math.round(pos.x + (oldSize - newSize) / 2),
+    y: Math.round(pos.y + (oldSize - newSize)),
+  };
+}
 
 /** Default configuration for Hakimi Pet (哈基米), compatible with dsh-pet conventions. */
 export const DEFAULT_CONFIG: AppConfig = {

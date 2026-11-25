@@ -1,4 +1,6 @@
 import {
+  clampPetSize,
+  computeAnchoredResizePos,
   computeCatchScore,
   computeLookAtAngles,
   computeMoveDestination,
@@ -86,11 +88,13 @@ declare global {
       getScreenBounds: () => Promise<Bounds>;
       setIgnoreMouse: (ignore: boolean) => void;
       moveWindow: (x: number, y: number) => void;
+      setSize: (size: number) => void;
       openContextMenu: (state: {
         fixedEnabled: boolean;
         whisperEnabled: boolean;
         facingRight: boolean;
         renderMode: RenderMode;
+        size: number;
       }) => void;
       onMenuCommand: (handler: (cmd: MenuCommand) => void) => void;
       onCursorPos: (handler: (pos: Vec2) => void) => void;
@@ -327,6 +331,40 @@ function resetToInitialPosition(): void {
   scheduleNextAction();
 }
 
+function applyPetSize(nextSize: number): void {
+  const clamped = clampPetSize(nextSize);
+  const oldSize = rt.config.pet.size;
+  if (clamped === oldSize) return;
+
+  const anchored = computeAnchoredResizePos(rt.petPos, oldSize, clamped);
+  const maxX = Math.max(rt.screenBounds.left, rt.screenBounds.right - clamped);
+  const maxY = Math.max(rt.screenBounds.top, rt.screenBounds.bottom - clamped);
+
+  rt.petPos = {
+    x: Math.min(maxX, Math.max(rt.screenBounds.left, anchored.x)),
+    y: Math.min(maxY, Math.max(rt.screenBounds.top, anchored.y)),
+  };
+  rt.config = {
+    ...rt.config,
+    pet: { ...rt.config.pet, size: clamped },
+  };
+  rt.layout = {
+    ...rt.layout,
+    width: clamped + rt.layout.padX * 2,
+    height: clamped + rt.layout.padTop + rt.layout.padBottom,
+  };
+
+  hitArea.style.width = `${clamped}px`;
+  hitArea.style.height = `${clamped}px`;
+  fxCanvas.width = rt.layout.width;
+  fxCanvas.height = rt.layout.height;
+  scene3d?.resize(clamped);
+
+  window.petAPI.setSize(clamped);
+  syncWindowToPetPos();
+  showBubble(`当前大小：${clamped}px`, undefined, 1600);
+}
+
 function setupPointerInteractions(): void {
   const interactiveEls = [hitArea, bubbleEl];
   for (const el of interactiveEls) {
@@ -343,8 +381,19 @@ function setupPointerInteractions(): void {
       whisperEnabled: rt.whisperEnabled,
       facingRight: rt.facingRight,
       renderMode: rt.renderMode,
+      size: rt.config.pet.size,
     });
   });
+
+  hitArea.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 20 : -20;
+      applyPetSize(rt.config.pet.size + delta);
+    },
+    { passive: false },
+  );
 
   hitArea.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
@@ -639,6 +688,8 @@ async function init(): Promise<void> {
       scene3d?.resetOrbit();
       rt.manualTiltYawDeg = 0;
       rt.manualTiltPitchDeg = 0;
+    } else if (cmd.type === 'set-size') {
+      applyPetSize(cmd.size);
     } else if (cmd.type === 'set-render-mode') {
       rt.renderMode = cmd.renderMode === '3d' && scene3d ? '3d' : '2d';
       playAction({ kind: 'idle', name: rt.lastActionName || rt.config.animations.idle[0] });

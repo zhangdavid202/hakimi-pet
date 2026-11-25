@@ -24,6 +24,7 @@ export type MenuCommand =
   | { readonly type: 'whisper-now' }
   | { readonly type: 'reset-position' }
   | { readonly type: 'reset-orbit' }
+  | { readonly type: 'set-size'; readonly size: number }
   | { readonly type: 'set-render-mode'; readonly renderMode: RenderMode }
   | { readonly type: 'toggle-fixed'; readonly fixedEnabled: boolean }
   | { readonly type: 'toggle-whisper'; readonly whisperEnabled: boolean };
@@ -33,11 +34,13 @@ contextBridge.exposeInMainWorld('petAPI', {
   getScreenBounds: (): Promise<Bounds> => ipcRenderer.invoke('get-screen-bounds'),
   setIgnoreMouse: (ignore: boolean): void => ipcRenderer.send('set-ignore-mouse', ignore),
   moveWindow: (x: number, y: number): void => ipcRenderer.send('move-window', x, y),
+  setSize: (size: number): void => ipcRenderer.send('set-pet-size', size),
   openContextMenu: (state: {
     fixedEnabled: boolean;
     whisperEnabled: boolean;
     facingRight: boolean;
     renderMode: RenderMode;
+    size: number;
   }): void => ipcRenderer.send('open-context-menu', state),
   onMenuCommand: (handler: (cmd: MenuCommand) => void): void => {
     ipcRenderer.removeAllListeners('menu-command');

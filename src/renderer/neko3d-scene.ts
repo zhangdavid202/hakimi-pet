@@ -94,6 +94,10 @@ export class Neko3DScene {
     this.orbitPitch = 0;
   }
 
+  public resize(sizePx: number): void {
+    this.renderer.setSize(sizePx, sizePx, false);
+  }
+
   public update(dt: number, state: SceneUpdateState): void {
     const safeDt = Math.min(0.05, Math.max(0.001, dt));
     this.timeSec += safeDt;

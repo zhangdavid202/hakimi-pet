@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CONFIG, parseConfig, stripJsonComments } from '../src/shared/config';
+import {
+  clampPetSize,
+  computeAnchoredResizePos,
+  DEFAULT_CONFIG,
+  MAX_PET_SIZE,
+  MIN_PET_SIZE,
+  parseConfig,
+  stripJsonComments,
+} from '../src/shared/config';
 
 describe('config', () => {
   it('strips JSONC comments while preserving // inside string literals', () => {
@@ -34,5 +42,15 @@ describe('config', () => {
     expect(() => parseConfig(`{ "physics": { "groundFriction": -1 } }`)).toThrow(/groundFriction/);
     expect(() => parseConfig(`{ "physics": { "throwPower": 0 } }`)).toThrow(/throwPower/);
     expect(() => parseConfig(`{ "pet": { "size": 20 } }`)).toThrow(/pet\.size/);
+  });
+
+  it('clamps pet size and keeps bottom-center anchored on resize', () => {
+    expect(clampPetSize(20)).toBe(MIN_PET_SIZE);
+    expect(clampPetSize(999)).toBe(MAX_PET_SIZE);
+    expect(clampPetSize(Number.NaN)).toBe(240);
+    expect(clampPetSize(280.4)).toBe(280);
+
+    const nextPos = computeAnchoredResizePos({ x: 500, y: 500 }, 240, 320);
+    expect(nextPos).toEqual({ x: 460, y: 420 });
   });
 });

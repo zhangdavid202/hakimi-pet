@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, MenuItemConstructorOptions, nativeIm
 import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
-import { DEFAULT_CONFIG, parseConfig } from '../shared/config';
+import { clampPetSize, DEFAULT_CONFIG, parseConfig, stripJsonComments } from '../shared/config';
 import { AppConfig, Bounds, RenderMode } from '../shared/types';
 import { InitPayload, MenuCommand, WindowLayoutMetrics } from './preload';
 
@@ -13,6 +13,7 @@ const PAD_BOTTOM = 40;
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let cursorTimer: NodeJS.Timeout | null = null;
+let saveSizeTimer: NodeJS.Timeout | null = null;
 let currentConfig: AppConfig = DEFAULT_CONFIG;
 let isQuitting = false;
 
@@ -33,6 +34,34 @@ function loadAppConfig(rootDir: string): AppConfig {
     }
   }
   return DEFAULT_CONFIG;
+}
+
+function saveUserPetSize(size: number): void {
+  const userCfgPath = path.join(app.getPath('userData'), 'config.jsonc');
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(userCfgPath)) {
+    try {
+      existing = JSON.parse(stripJsonComments(fs.readFileSync(userCfgPath, 'utf8'))) as Record<
+        string,
+        unknown
+      >;
+    } catch {
+      existing = {};
+    }
+  }
+  const existingPet =
+    existing.pet && typeof existing.pet === 'object'
+      ? (existing.pet as Record<string, unknown>)
+      : {};
+  const next = {
+    ...existing,
+    pet: {
+      ...existingPet,
+      size,
+    },
+  };
+  fs.mkdirSync(path.dirname(userCfgPath), { recursive: true });
+  fs.writeFileSync(userCfgPath, JSON.stringify(next, null, 2) + '\n', 'utf8');
 }
 
 function scanWebmFiles(rootDir: string): string[] {
@@ -123,13 +152,42 @@ function showPetContextMenu(state: {
   whisperEnabled: boolean;
   facingRight: boolean;
   renderMode: RenderMode;
+  size: number;
 }): void {
   if (!mainWindow) return;
   const hasGlb = Boolean(findCustomModelUrl(getProjectRoot()));
+  const sizePresets = [
+    { label: '迷你 (140px)', value: 140 },
+    { label: '小号 (180px)', value: 180 },
+    { label: '标准 (240px)', value: 240 },
+    { label: '大号 (320px)', value: 320 },
+    { label: '超大 (420px)', value: 420 },
+  ];
+
   const menu = Menu.buildFromTemplate([
     { label: '💬 碎碎念一下', click: () => sendMenuCommand({ type: 'whisper-now' }) },
     { label: '🏠 回到初始位置', click: () => sendMenuCommand({ type: 'reset-position' }) },
     { type: 'separator' },
+    {
+      label: `📏 调整大小 (当前 ${state.size}px)`,
+      submenu: [
+        ...sizePresets.map((preset) => ({
+          label: preset.label,
+          type: 'radio' as const,
+          checked: Math.abs(state.size - preset.value) <= 5,
+          click: () => sendMenuCommand({ type: 'set-size', size: preset.value }),
+        })),
+        { type: 'separator' as const },
+        {
+          label: '➕ 放大 (+20px)',
+          click: () => sendMenuCommand({ type: 'set-size', size: clampPetSize(state.size + 20) }),
+        },
+        {
+          label: '➖ 缩小 (-20px)',
+          click: () => sendMenuCommand({ type: 'set-size', size: clampPetSize(state.size - 20) }),
+        },
+      ],
+    },
     {
       label: '✨ 形象模式',
       submenu: [
@@ -286,6 +344,26 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.on('set-pet-size', (_event, rawSize: number) => {
+    const nextSize = clampPetSize(rawSize);
+    currentConfig = {
+      ...currentConfig,
+      pet: { ...currentConfig.pet, size: nextSize },
+    };
+    if (saveSizeTimer) clearTimeout(saveSizeTimer);
+    saveSizeTimer = setTimeout(() => saveUserPetSize(nextSize), 250);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const bounds = mainWindow.getBounds();
+      const layout = getLayoutMetrics(nextSize);
+      mainWindow.setBounds({
+        x: bounds.x,
+        y: bounds.y,
+        width: layout.width,
+        height: layout.height,
+      });
+    }
+  });
+
   ipcMain.on(
     'open-context-menu',
     (
@@ -295,6 +373,7 @@ app.whenReady().then(() => {
         whisperEnabled: boolean;
         facingRight: boolean;
         renderMode: RenderMode;
+        size: number;
       },
     ) => {
       showPetContextMenu(state);
