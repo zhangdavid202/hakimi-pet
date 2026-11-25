@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { DEFAULT_CONFIG, parseConfig } from '../shared/config';
-import { AppConfig, Bounds } from '../shared/types';
+import { AppConfig, Bounds, RenderMode } from '../shared/types';
 import { InitPayload, MenuCommand, WindowLayoutMetrics } from './preload';
 
 const PAD_X = 140;
@@ -12,6 +12,7 @@ const PAD_BOTTOM = 40;
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let cursorTimer: NodeJS.Timeout | null = null;
 let currentConfig: AppConfig = DEFAULT_CONFIG;
 let isQuitting = false;
 
@@ -40,6 +41,11 @@ function scanWebmFiles(rootDir: string): string[] {
   return fs
     .readdirSync(webmDir)
     .filter((f) => f.toLowerCase().endsWith('.webm'));
+}
+
+function findCustomModelUrl(rootDir: string): string | undefined {
+  const glbPath = path.join(rootDir, 'assets', 'models', 'hakimi.glb');
+  return fs.existsSync(glbPath) ? pathToFileURL(glbPath).toString() : undefined;
 }
 
 function getLayoutMetrics(petSize: number): WindowLayoutMetrics {
@@ -116,12 +122,36 @@ function showPetContextMenu(state: {
   fixedEnabled: boolean;
   whisperEnabled: boolean;
   facingRight: boolean;
+  renderMode: RenderMode;
 }): void {
   if (!mainWindow) return;
   const menu = Menu.buildFromTemplate([
     { label: '💬 碎碎念一下', click: () => sendMenuCommand({ type: 'whisper-now' }) },
     { label: '🏠 回到初始位置', click: () => sendMenuCommand({ type: 'reset-position' }) },
     { type: 'separator' },
+    {
+      label: '🧊 渲染模式',
+      submenu: [
+        {
+          label: '3D 实时模型（眼神跟随 / Shift+拖拽旋转）',
+          type: 'radio',
+          checked: state.renderMode === '3d',
+          click: () => sendMenuCommand({ type: 'set-render-mode', renderMode: '3d' }),
+        },
+        {
+          label: '2D Q版立绘',
+          type: 'radio',
+          checked: state.renderMode === '2d',
+          click: () => sendMenuCommand({ type: 'set-render-mode', renderMode: '2d' }),
+        },
+        { type: 'separator' },
+        {
+          label: '🔄 重置 3D 视角',
+          enabled: state.renderMode === '3d',
+          click: () => sendMenuCommand({ type: 'reset-orbit' }),
+        },
+      ],
+    },
     {
       label: '📌 固定宠物（不乱走）',
       type: 'checkbox',
@@ -225,6 +255,7 @@ app.whenReady().then(() => {
     return {
       config: currentConfig,
       availableWebms: scanWebmFiles(rootDir),
+      customModelUrl: findCustomModelUrl(rootDir),
       screenBounds: bounds,
       initialWindowPos: computeInitialWindowPos(currentConfig, layout, bounds),
       layout,
@@ -254,13 +285,31 @@ app.whenReady().then(() => {
 
   ipcMain.on(
     'open-context-menu',
-    (_event, state: { fixedEnabled: boolean; whisperEnabled: boolean; facingRight: boolean }) => {
+    (
+      _event,
+      state: {
+        fixedEnabled: boolean;
+        whisperEnabled: boolean;
+        facingRight: boolean;
+        renderMode: RenderMode;
+      },
+    ) => {
       showPetContextMenu(state);
     },
   );
 
   createWindow();
   createTray(rootDir);
+
+  let lastCursor = { x: -1, y: -1 };
+  cursorTimer = setInterval(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const pt = screen.getCursorScreenPoint();
+    if (pt.x !== lastCursor.x || pt.y !== lastCursor.y) {
+      lastCursor = pt;
+      mainWindow.webContents.send('cursor-pos', pt);
+    }
+  }, 50);
 
   const isSmokeTest =
     process.argv.includes('--smoke-test') || process.env.HAKIMI_SMOKE_TEST === '1';
@@ -271,6 +320,13 @@ app.whenReady().then(() => {
         app.quit();
       }, 1200);
     });
+  }
+});
+
+app.on('before-quit', () => {
+  if (cursorTimer) {
+    clearInterval(cursorTimer);
+    cursorTimer = null;
   }
 });
 

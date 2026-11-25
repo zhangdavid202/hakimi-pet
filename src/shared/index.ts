@@ -4,3 +4,4 @@ export * from './physics';
 export * from './scheduler';
 export * from './dsh-compat';
 export * from './whispers';
+export * from './lookat';

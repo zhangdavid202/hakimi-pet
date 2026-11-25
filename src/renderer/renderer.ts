@@ -17,9 +17,12 @@ import type {
   DragSpringState,
   PointerSample,
   ProjectileState,
+  RenderMode,
   SpriteMood,
+  Vec2,
 } from '../shared/types';
 import type { InitPayload, MenuCommand, WindowLayoutMetrics } from '../main/preload';
+import { Neko3DScene } from './neko3d-scene';
 
 interface Particle {
   x: number;
@@ -38,11 +41,14 @@ interface PetRuntime {
   assetBaseUrl: string;
   availableWebms: Set<string>;
   screenBounds: Bounds;
+  initialWindowPos: { x: number; y: number };
   petPos: { x: number; y: number };
+  cursorScreen: Vec2;
   facingRight: boolean;
+  renderMode: RenderMode;
   fixedEnabled: boolean;
   whisperEnabled: boolean;
-  mode: 'anim' | 'drag' | 'throw' | 'move';
+  mode: 'anim' | 'drag' | 'throw' | 'move' | 'orbit';
   lastActionName: string;
   currentParticles: readonly string[];
   actionTimerId: number | null;
@@ -53,6 +59,7 @@ interface PetRuntime {
   dragSamples: PointerSample[];
   pointerTarget: { x: number; y: number };
   dragMovedDist: number;
+  orbitLast: { x: number; y: number };
   projectile: ProjectileState | null;
   squashUntilMs: number;
   squashStartMs: number;
@@ -77,8 +84,10 @@ declare global {
         fixedEnabled: boolean;
         whisperEnabled: boolean;
         facingRight: boolean;
+        renderMode: RenderMode;
       }) => void;
       onMenuCommand: (handler: (cmd: MenuCommand) => void) => void;
+      onCursorPos: (handler: (pos: Vec2) => void) => void;
     };
   }
 }
@@ -87,6 +96,7 @@ const hitArea = document.getElementById('pet-hitarea') as HTMLDivElement;
 const squashEl = document.getElementById('pet-squash') as HTMLDivElement;
 const flipEl = document.getElementById('pet-flip') as HTMLDivElement;
 const motionEl = document.getElementById('pet-motion') as HTMLDivElement;
+const canvas3dEl = document.getElementById('pet-3d-canvas') as HTMLCanvasElement;
 const spriteEl = document.getElementById('pet-sprite') as HTMLImageElement;
 const videoEl = document.getElementById('pet-video') as HTMLVideoElement;
 const propEl = document.getElementById('prop-badge') as HTMLDivElement;
@@ -97,6 +107,7 @@ const fxCanvas = document.getElementById('fx-canvas') as HTMLCanvasElement;
 const fxCtx = fxCanvas.getContext('2d')!;
 
 let rt: PetRuntime;
+let scene3d: Neko3DScene | null = null;
 
 function syncWindowToPetPos(): void {
   window.petAPI.moveWindow(rt.petPos.x - rt.layout.padX, rt.petPos.y - rt.layout.padTop);
@@ -114,7 +125,27 @@ function getPetMovementBounds(): Bounds {
 
 function updateFacing(facingRight: boolean): void {
   rt.facingRight = facingRight;
-  flipEl.classList.toggle('facing-right', facingRight);
+  const shouldCssFlip = rt.renderMode === '2d' || !videoEl.classList.contains('hidden');
+  flipEl.classList.toggle('facing-right', shouldCssFlip && facingRight);
+}
+
+function syncAvatarLayerVisibility(showingWebm: boolean): void {
+  if (showingWebm) {
+    canvas3dEl.classList.add('hidden');
+    spriteEl.classList.add('hidden');
+    videoEl.classList.remove('hidden');
+    motionEl.className = '';
+  } else if (rt.renderMode === '3d') {
+    videoEl.classList.add('hidden');
+    spriteEl.classList.add('hidden');
+    canvas3dEl.classList.remove('hidden');
+    motionEl.className = '';
+  } else {
+    videoEl.classList.add('hidden');
+    canvas3dEl.classList.add('hidden');
+    spriteEl.classList.remove('hidden');
+  }
+  updateFacing(rt.facingRight);
 }
 
 function triggerSquash(strength: number): void {
@@ -203,25 +234,25 @@ function playAction(selection: ActionSelection): void {
   const resolved = resolveActionMedia(selection.name, rt.availableWebms);
 
   if (resolved.type === 'webm') {
-    spriteEl.classList.add('hidden');
-    videoEl.classList.remove('hidden');
+    syncAvatarLayerVisibility(true);
     videoEl.src = `${rt.assetBaseUrl}/webm/${encodeURIComponent(resolved.file)}`;
     videoEl.loop = selection.kind === 'idle' || selection.name.includes('拖拽');
     void videoEl.play().catch(() => {
-      videoEl.classList.add('hidden');
-      spriteEl.classList.remove('hidden');
+      syncAvatarLayerVisibility(false);
     });
     propEl.classList.add('hidden');
     rt.currentParticles = ['✨'];
   } else {
     videoEl.pause();
-    videoEl.classList.add('hidden');
-    spriteEl.classList.remove('hidden');
+    syncAvatarLayerVisibility(false);
     setSpriteMood(resolved.preset.sprite);
-    motionEl.className = resolved.preset.motionClass;
+    if (rt.renderMode === '2d') {
+      motionEl.className = resolved.preset.motionClass;
+    }
+    scene3d?.setAction(resolved.preset.sprite, resolved.preset.motionClass);
     rt.currentParticles = resolved.preset.particles;
 
-    if (resolved.preset.propEmoji) {
+    if (resolved.preset.propEmoji && rt.renderMode === '2d') {
       propEl.textContent = resolved.preset.propEmoji;
       propEl.classList.remove('hidden');
     } else {
@@ -253,7 +284,8 @@ function playAction(selection: ActionSelection): void {
       startMs: performance.now(),
       durationMs: walkDurationMs,
     };
-    motionEl.className = 'anim-walk';
+    if (rt.renderMode === '2d') motionEl.className = 'anim-walk';
+    scene3d?.setAction('happy', 'anim-walk');
     rt.actionTimerId = window.setTimeout(() => {
       rt.walkAnim = null;
       rt.mode = 'anim';
@@ -280,25 +312,20 @@ function resetToInitialPosition(): void {
   rt.walkAnim = null;
   rt.projectile = null;
   rt.petPos = {
-    x: rtExt.initialWindowPos.x + rt.layout.padX,
-    y: rtExt.initialWindowPos.y + rt.layout.padTop,
+    x: rt.initialWindowPos.x + rt.layout.padX,
+    y: rt.initialWindowPos.y + rt.layout.padTop,
   };
   syncWindowToPetPos();
   triggerSquash(0.32);
   scheduleNextAction();
 }
 
-interface ExtendedRuntime extends PetRuntime {
-  initialWindowPos: { x: number; y: number };
-}
-let rtExt: ExtendedRuntime;
-
 function setupPointerInteractions(): void {
   const interactiveEls = [hitArea, bubbleEl];
   for (const el of interactiveEls) {
     el.addEventListener('mouseenter', () => window.petAPI.setIgnoreMouse(false));
     el.addEventListener('mouseleave', () => {
-      if (rt.mode !== 'drag') window.petAPI.setIgnoreMouse(true);
+      if (rt.mode !== 'drag' && rt.mode !== 'orbit') window.petAPI.setIgnoreMouse(true);
     });
   }
 
@@ -308,6 +335,7 @@ function setupPointerInteractions(): void {
       fixedEnabled: rt.fixedEnabled,
       whisperEnabled: rt.whisperEnabled,
       facingRight: rt.facingRight,
+      renderMode: rt.renderMode,
     });
   });
 
@@ -315,6 +343,13 @@ function setupPointerInteractions(): void {
     if (e.button !== 0) return;
     e.preventDefault();
     hitArea.setPointerCapture(e.pointerId);
+
+    if (e.shiftKey && rt.renderMode === '3d') {
+      rt.mode = 'orbit';
+      rt.orbitLast = { x: e.screenX, y: e.screenY };
+      hitArea.classList.add('dragging');
+      return;
+    }
 
     if (rt.mode === 'throw' && rt.projectile) {
       const speed = Math.hypot(rt.projectile.vel.x, rt.projectile.vel.y);
@@ -347,6 +382,14 @@ function setupPointerInteractions(): void {
   });
 
   window.addEventListener('pointermove', (e) => {
+    if (rt.mode === 'orbit') {
+      const dx = e.screenX - rt.orbitLast.x;
+      const dy = e.screenY - rt.orbitLast.y;
+      rt.orbitLast = { x: e.screenX, y: e.screenY };
+      scene3d?.setOrbitDelta(dx, dy);
+      return;
+    }
+
     if (rt.mode !== 'drag') return;
     const nextX = e.screenX - rt.dragGrabOffset.x;
     const nextY = e.screenY - rt.dragGrabOffset.y;
@@ -358,6 +401,13 @@ function setupPointerInteractions(): void {
   });
 
   const finishDrag = (): void => {
+    if (rt.mode === 'orbit') {
+      rt.mode = 'anim';
+      hitArea.classList.remove('dragging');
+      window.petAPI.setIgnoreMouse(true);
+      return;
+    }
+
     if (rt.mode !== 'drag') return;
     hitArea.classList.remove('dragging');
     window.petAPI.setIgnoreMouse(true);
@@ -422,6 +472,8 @@ function tick(nowMs: number): void {
   const dt = Math.min(0.05, Math.max(0.001, (nowMs - lastFrameMs) / 1000));
   lastFrameMs = nowMs;
 
+  let activeVel: Vec2 = { x: 0, y: 0 };
+
   if (rt.mode === 'drag' && rt.dragSpring) {
     rt.dragSpring = stepDragSpring(
       rt.dragSpring,
@@ -429,6 +481,7 @@ function tick(nowMs: number): void {
       dt,
       rt.config.physics.throwPower,
     );
+    activeVel = rt.dragSpring.vel;
     rt.petPos = { ...rt.dragSpring.pos };
     syncWindowToPetPos();
   } else if (rt.mode === 'throw' && rt.projectile) {
@@ -439,6 +492,7 @@ function tick(nowMs: number): void {
       dt,
     );
     rt.projectile = step.nextState;
+    activeVel = step.nextState.vel;
     rt.petPos = { ...step.nextState.pos };
     syncWindowToPetPos();
 
@@ -455,6 +509,7 @@ function tick(nowMs: number): void {
     const elapsed = nowMs - rt.walkAnim.startMs;
     const t = Math.min(1, elapsed / rt.walkAnim.durationMs);
     rt.petPos.x = rt.walkAnim.startX + (rt.walkAnim.targetX - rt.walkAnim.startX) * t;
+    activeVel = { x: rt.facingRight ? 120 : -120, y: 0 };
     syncWindowToPetPos();
   }
 
@@ -466,13 +521,24 @@ function tick(nowMs: number): void {
     squashEl.style.transform = '';
   }
 
+  if (rt.renderMode === '3d' && scene3d) {
+    const half = rt.config.pet.size * 0.5;
+    scene3d.update(dt, {
+      cursorScreen: rt.cursorScreen,
+      petScreenCenter: { x: rt.petPos.x + half, y: rt.petPos.y + half },
+      facingRight: rt.facingRight,
+      mode: rt.mode === 'orbit' ? 'anim' : rt.mode,
+      velocity: activeVel,
+    });
+  }
+
   renderParticles(dt);
   requestAnimationFrame(tick);
 }
 
 async function init(): Promise<void> {
   const payload = await window.petAPI.getInitData();
-  const { config, layout, screenBounds, initialWindowPos, availableWebms, assetBaseUrl } = payload;
+  const { config, layout, screenBounds, initialWindowPos, availableWebms, assetBaseUrl, customModelUrl } = payload;
 
   hitArea.style.left = `${layout.padX}px`;
   hitArea.style.top = `${layout.padTop}px`;
@@ -482,18 +548,22 @@ async function init(): Promise<void> {
   fxCanvas.width = layout.width;
   fxCanvas.height = layout.height;
 
-  rtExt = {
+  const initialPos = {
+    x: initialWindowPos.x + layout.padX,
+    y: initialWindowPos.y + layout.padTop,
+  };
+
+  rt = {
     config,
     layout,
     assetBaseUrl,
     availableWebms: new Set(availableWebms),
     screenBounds,
     initialWindowPos,
-    petPos: {
-      x: initialWindowPos.x + layout.padX,
-      y: initialWindowPos.y + layout.padTop,
-    },
+    petPos: { ...initialPos },
+    cursorScreen: { x: initialPos.x + config.pet.size * 0.5, y: initialPos.y + config.pet.size * 0.5 },
     facingRight: false,
+    renderMode: config.pet.renderMode ?? '3d',
     fixedEnabled: config.pet.fixedEnabled,
     whisperEnabled: config.pet.whisperEnabled,
     mode: 'anim',
@@ -507,6 +577,7 @@ async function init(): Promise<void> {
     dragSamples: [],
     pointerTarget: { x: 0, y: 0 },
     dragMovedDist: 0,
+    orbitLast: { x: 0, y: 0 },
     projectile: null,
     squashUntilMs: 0,
     squashStartMs: 0,
@@ -514,7 +585,17 @@ async function init(): Promise<void> {
     walkAnim: null,
     particles: [],
   };
-  rt = rtExt;
+
+  try {
+    scene3d = new Neko3DScene(canvas3dEl, config.pet.size, customModelUrl);
+  } catch (err) {
+    console.warn('[hakimi-pet] WebGL unavailable, falling back to 2D sprites:', err);
+    rt.renderMode = '2d';
+  }
+
+  window.petAPI.onCursorPos((pos) => {
+    rt.cursorScreen = pos;
+  });
 
   setupPointerInteractions();
 
@@ -523,6 +604,11 @@ async function init(): Promise<void> {
       triggerWhisperNow();
     } else if (cmd.type === 'reset-position') {
       resetToInitialPosition();
+    } else if (cmd.type === 'reset-orbit') {
+      scene3d?.resetOrbit();
+    } else if (cmd.type === 'set-render-mode') {
+      rt.renderMode = cmd.renderMode;
+      playAction({ kind: 'idle', name: rt.lastActionName || rt.config.animations.idle[0] });
     } else if (cmd.type === 'toggle-fixed') {
       rt.fixedEnabled = cmd.fixedEnabled;
     } else if (cmd.type === 'toggle-whisper') {
@@ -551,7 +637,11 @@ async function init(): Promise<void> {
   }, Math.max(20, config.whisperIntervalSec) * 1000);
 
   scheduleNextAction();
-  window.setTimeout(() => showBubble('Ciallo～★ 哈基米上线啦！右键可以点播动作哦~', '可爱', 5500), 800);
+  const welcomeMsg =
+    rt.renderMode === '3d'
+      ? 'Ciallo～★ 3D 哈基米上线！Shift+左键拖拽可360°旋转视角哦~'
+      : 'Ciallo～★ 哈基米上线啦！右键可以点播动作哦~';
+  window.setTimeout(() => showBubble(welcomeMsg, '可爱', 5500), 800);
   requestAnimationFrame(tick);
 }
 

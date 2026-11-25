@@ -71,11 +71,15 @@ export interface AnimationWeights {
 /** Corner anchor for initial placement. */
 export type CornerAnchor = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
+/** Render mode for the pet avatar: real-time 3D WebGL or 2D chibi sprite. */
+export type RenderMode = '3d' | '2d';
+
 /** Per-pet instance settings. */
 export interface PetInstanceConfig {
   readonly name: string;
   readonly id: string;
   readonly size: number;
+  readonly renderMode?: RenderMode;
   readonly fixedEnabled: boolean;
   readonly whisperEnabled: boolean;
   readonly position: {

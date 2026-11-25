@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { AppConfig, Bounds } from '../shared/types';
+import { AppConfig, Bounds, RenderMode, Vec2 } from '../shared/types';
 
 export interface WindowLayoutMetrics {
   readonly padX: number;
@@ -12,6 +12,7 @@ export interface WindowLayoutMetrics {
 export interface InitPayload {
   readonly config: AppConfig;
   readonly availableWebms: readonly string[];
+  readonly customModelUrl?: string;
   readonly screenBounds: Bounds;
   readonly initialWindowPos: { readonly x: number; readonly y: number };
   readonly layout: WindowLayoutMetrics;
@@ -22,6 +23,8 @@ export type MenuCommand =
   | { readonly type: 'play-action'; readonly name: string }
   | { readonly type: 'whisper-now' }
   | { readonly type: 'reset-position' }
+  | { readonly type: 'reset-orbit' }
+  | { readonly type: 'set-render-mode'; readonly renderMode: RenderMode }
   | { readonly type: 'toggle-fixed'; readonly fixedEnabled: boolean }
   | { readonly type: 'toggle-whisper'; readonly whisperEnabled: boolean };
 
@@ -34,9 +37,14 @@ contextBridge.exposeInMainWorld('petAPI', {
     fixedEnabled: boolean;
     whisperEnabled: boolean;
     facingRight: boolean;
+    renderMode: RenderMode;
   }): void => ipcRenderer.send('open-context-menu', state),
   onMenuCommand: (handler: (cmd: MenuCommand) => void): void => {
     ipcRenderer.removeAllListeners('menu-command');
     ipcRenderer.on('menu-command', (_event, cmd: MenuCommand) => handler(cmd));
+  },
+  onCursorPos: (handler: (pos: Vec2) => void): void => {
+    ipcRenderer.removeAllListeners('cursor-pos');
+    ipcRenderer.on('cursor-pos', (_event, pos: Vec2) => handler(pos));
   },
 });
